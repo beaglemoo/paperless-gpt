@@ -68,6 +68,12 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	}
 
 	response := stripReasoning(strings.TrimSpace(completion.Choices[0].Content))
+
+	// Return empty string for "NONE" or "Unknown" to skip setting correspondent
+	if strings.EqualFold(response, "NONE") || strings.EqualFold(response, "Unknown") {
+		return "", nil
+	}
+
 	return response, nil
 }
 
