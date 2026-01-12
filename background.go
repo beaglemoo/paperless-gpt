@@ -134,6 +134,14 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 			continue
 		}
 
+		// Remove the processing tags after auto-tagging completes
+		for i := range suggestions {
+			suggestions[i].RemoveTags = append(suggestions[i].RemoveTags, autoTag)
+			if app.pdfOCRCompleteTag != "" {
+				suggestions[i].RemoveTags = append(suggestions[i].RemoveTags, app.pdfOCRCompleteTag)
+			}
+		}
+
 		err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
 		if err != nil {
 			err = fmt.Errorf("error updating document %d: %w", document.ID, err)

@@ -907,9 +907,18 @@ func createLLM() (llms.Model, error) {
 		if host == "" {
 			host = "http://127.0.0.1:11434"
 		}
+		// Create HTTP client with timeout to prevent hanging on slow/stuck requests
+		ollamaTimeout := 5 * time.Minute // Default 5 minute timeout
+		if timeoutStr := os.Getenv("OLLAMA_TIMEOUT"); timeoutStr != "" {
+			if parsed, err := time.ParseDuration(timeoutStr); err == nil {
+				ollamaTimeout = parsed
+			}
+		}
+		ollamaHTTPClient := &http.Client{Timeout: ollamaTimeout}
 		opts := []ollama.Option{
 			ollama.WithModel(llmModel),
 			ollama.WithServerURL(host),
+			ollama.WithHTTPClient(ollamaHTTPClient),
 		}
 		if ctxLenStr := os.Getenv("OLLAMA_CONTEXT_LENGTH"); ctxLenStr != "" {
 			if parsed, err := strconv.Atoi(ctxLenStr); err == nil && parsed > 0 {
@@ -1015,9 +1024,18 @@ func createVisionLLM() (llms.Model, error) {
 		if host == "" {
 			host = "http://127.0.0.1:11434"
 		}
+		// Create HTTP client with timeout to prevent hanging on slow/stuck requests
+		ollamaTimeout := 5 * time.Minute // Default 5 minute timeout
+		if timeoutStr := os.Getenv("OLLAMA_TIMEOUT"); timeoutStr != "" {
+			if parsed, err := time.ParseDuration(timeoutStr); err == nil {
+				ollamaTimeout = parsed
+			}
+		}
+		ollamaHTTPClient := &http.Client{Timeout: ollamaTimeout}
 		opts := []ollama.Option{
 			ollama.WithModel(visionLlmModel),
 			ollama.WithServerURL(host),
+			ollama.WithHTTPClient(ollamaHTTPClient),
 		}
 		if ctxLenStr := os.Getenv("OLLAMA_CONTEXT_LENGTH"); ctxLenStr != "" {
 			if parsed, err := strconv.Atoi(ctxLenStr); err == nil && parsed > 0 {
