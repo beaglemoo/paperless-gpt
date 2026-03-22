@@ -599,6 +599,15 @@ func validateOrDefaultEnvVars() {
 	}
 	fmt.Printf("Document max retries: %d\n", documentMaxRetries)
 
+	if raw := os.Getenv("DOCUMENT_RETRY_AFTER"); raw != "" {
+		if parsed, err := time.ParseDuration(raw); err == nil {
+			documentRetryAfter = parsed
+		} else {
+			log.Warnf("Invalid DOCUMENT_RETRY_AFTER value, using default %v", documentRetryAfter)
+		}
+	}
+	fmt.Printf("Document retry after: %v\n", documentRetryAfter)
+
 	if paperlessBaseURL == "" {
 		log.Fatal("Please set the PAPERLESS_BASE_URL environment variable.")
 	}
