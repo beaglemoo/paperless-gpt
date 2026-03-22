@@ -180,18 +180,32 @@ func GetDocumentFailure(db *gorm.DB, documentID int) (*DocumentFailure, error) {
 // IncrementDocumentFailure increments the failure count for a document and returns the new count
 func IncrementDocumentFailure(db *gorm.DB, documentID int, lastError string) (int, error) {
 	var record DocumentFailure
+	// First check for an active (unresolved) failure record
 	result := db.Where("document_id = ? AND resolved = ?", documentID, false).First(&record)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		record = DocumentFailure{
-			DocumentID:   documentID,
-			FailureCount: 1,
-			LastError:    lastError,
-			LastFailedAt: time.Now(),
+		// Check if there is a resolved record we can reuse
+		result = db.Where("document_id = ?", documentID).First(&record)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			// No record at all, create new
+			record = DocumentFailure{
+				DocumentID:   documentID,
+				FailureCount: 1,
+				LastError:    lastError,
+				LastFailedAt: time.Now(),
+			}
+			if err := db.Create(&record).Error; err != nil {
+				return 0, err
+			}
+			return 1, nil
+		} else if result.Error != nil {
+			return 0, result.Error
 		}
-		if err := db.Create(&record).Error; err != nil {
-			return 0, err
-		}
-		return 1, nil
+		// Reuse resolved record - reset it
+		record.FailureCount = 1
+		record.LastError = lastError
+		record.LastFailedAt = time.Now()
+		record.Resolved = false
+		return 1, db.Save(&record).Error
 	}
 	if result.Error != nil {
 		return 0, result.Error
