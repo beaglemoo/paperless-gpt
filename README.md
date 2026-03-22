@@ -1,4 +1,26 @@
-# paperless-gpt
+# paperless-gpt (beaglemoo fork)
+
+> **This is a fork of [icereed/paperless-gpt](https://github.com/icereed/paperless-gpt)** with the following additions:
+>
+> **Document-level failure tracking** - Documents that fail LLM processing are tracked in SQLite. After a configurable number of retries (default 3), the document is tagged as failed and removed from the processing queue, preventing infinite retry loops that burn through API budgets. See [upstream issue #871](https://github.com/icereed/paperless-gpt/issues/871).
+>
+> **Additional fixes:**
+> - `AddTags` support in `UpdateDocuments` (field existed but was never processed)
+> - Ollama HTTP client timeout (5 minutes) to prevent hangs
+> - Tags null fix (initialize as empty slice instead of nil)
+>
+> **New environment variables:**
+> | Variable | Default | Description |
+> |----------|---------|-------------|
+> | `DOCUMENT_MAX_RETRIES` | `3` | Max processing attempts per document before marking as failed |
+> | `FAILED_TAG` | `paperless-gpt-failed` | Tag applied to documents that exceed max retries |
+
+---
+
+*Original README follows below.*
+
+---
+
 
 [![License](https://img.shields.io/github/license/icereed/paperless-gpt)](LICENSE)
 [![Discord Banner](https://img.shields.io/badge/Join%20us%20on-Discord-blue?logo=discord)](https://discord.gg/fJQppDH2J7)
