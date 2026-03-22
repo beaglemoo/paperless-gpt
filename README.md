@@ -13,6 +13,7 @@
 > | Variable | Default | Description |
 > |----------|---------|-------------|
 > | `DOCUMENT_MAX_RETRIES` | `3` | Max processing attempts per document before marking as failed |
+> | `DOCUMENT_RETRY_AFTER` | `24h` | Cooldown before auto-retrying failed documents (Go duration format) |
 > | `FAILED_TAG` | `paperless-gpt-failed` | Tag applied to documents that exceed max retries |
 
 ---
