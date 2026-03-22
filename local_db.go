@@ -50,7 +50,7 @@ func InitializeDB() *gorm.DB {
 	}
 
 	// Migrate the schema (create the tables if they don't exist)
-	err = db.AutoMigrate(&ModificationHistory{}, &OCRPageResult{})
+	err = db.AutoMigrate(&ModificationHistory{}, &OCRPageResult{}, &DocumentFailure{})
 	if err != nil {
 		log.Fatalf("Failed to migrate database schema: %v", err)
 	}
@@ -152,4 +152,59 @@ func UpdateOcrPageResult(db *gorm.DB, docID int, pageIdx int, text string, ocrLi
 
 func DeleteOcrPageResults(db *gorm.DB, docID int) error {
 	return db.Where("document_id = ?", docID).Delete(&OCRPageResult{}).Error
+}
+
+
+// DocumentFailure tracks per-document processing failures to prevent infinite retry loops.
+// When a document fails more than DOCUMENT_MAX_RETRIES times, it is tagged as failed
+// and removed from the processing queue.
+type DocumentFailure struct {
+	ID           uint      `gorm:"primaryKey"`
+	DocumentID   int       `gorm:"uniqueIndex;not null"`
+	FailureCount int       `gorm:"not null;default:0"`
+	LastError    string    `gorm:"type:TEXT"`
+	LastFailedAt time.Time
+	Resolved     bool      `gorm:"not null;default:false"`
+}
+
+// GetDocumentFailure retrieves the failure record for a document, or nil if none exists
+func GetDocumentFailure(db *gorm.DB, documentID int) (*DocumentFailure, error) {
+	var record DocumentFailure
+	result := db.Where("document_id = ? AND resolved = ?", documentID, false).First(&record)
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &record, result.Error
+}
+
+// IncrementDocumentFailure increments the failure count for a document and returns the new count
+func IncrementDocumentFailure(db *gorm.DB, documentID int, lastError string) (int, error) {
+	var record DocumentFailure
+	result := db.Where("document_id = ? AND resolved = ?", documentID, false).First(&record)
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		record = DocumentFailure{
+			DocumentID:   documentID,
+			FailureCount: 1,
+			LastError:    lastError,
+			LastFailedAt: time.Now(),
+		}
+		if err := db.Create(&record).Error; err != nil {
+			return 0, err
+		}
+		return 1, nil
+	}
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	record.FailureCount++
+	record.LastError = lastError
+	record.LastFailedAt = time.Now()
+	return record.FailureCount, db.Save(&record).Error
+}
+
+// ResetDocumentFailure marks a document failure record as resolved
+func ResetDocumentFailure(db *gorm.DB, documentID int) error {
+	return db.Model(&DocumentFailure{}).
+		Where("document_id = ? AND resolved = ?", documentID, false).
+		Update("resolved", true).Error
 }

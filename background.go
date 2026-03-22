@@ -115,6 +115,32 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 		}
 
 		docLogger := documentLogger(document.ID)
+
+		// Check if this document has exceeded max retries
+		if app.Database != nil {
+			failure, dbErr := GetDocumentFailure(app.Database, document.ID)
+			if dbErr != nil {
+				docLogger.Errorf("Error checking failure count: %v", dbErr)
+			}
+			if failure != nil && failure.FailureCount >= documentMaxRetries {
+				docLogger.Warnf("Document has failed %d times (max %d), marking as failed",
+					failure.FailureCount, documentMaxRetries)
+				markErr := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+					{
+						ID:               document.ID,
+						OriginalDocument: document,
+						RemoveTags:       []string{autoTag},
+						AddTags:          []string{failedTag},
+					},
+				}, app.Database, false)
+				if markErr != nil {
+					docLogger.Errorf("Failed to mark document as failed: %v", markErr)
+					errs = append(errs, markErr)
+				}
+				continue
+			}
+		}
+
 		docLogger.Info("Processing document for auto-tagging")
 
 		suggestionRequest := GenerateSuggestionsRequest{
@@ -131,6 +157,13 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 		if err != nil {
 			err = fmt.Errorf("error generating suggestions for document %d: %w", document.ID, err)
 			docLogger.Error(err.Error())
+			if app.Database != nil {
+				count, dbErr := IncrementDocumentFailure(app.Database, document.ID, err.Error())
+				if dbErr != nil {
+					docLogger.Errorf("Failed to record failure: %v", dbErr)
+				}
+				docLogger.Warnf("Document failure count: %d/%d", count, documentMaxRetries)
+			}
 			errs = append(errs, err)
 			continue
 		}
@@ -147,10 +180,21 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 		if err != nil {
 			err = fmt.Errorf("error updating document %d: %w", document.ID, err)
 			docLogger.Error(err.Error())
+			if app.Database != nil {
+				count, dbErr := IncrementDocumentFailure(app.Database, document.ID, err.Error())
+				if dbErr != nil {
+					docLogger.Errorf("Failed to record failure: %v", dbErr)
+				}
+				docLogger.Warnf("Document failure count: %d/%d", count, documentMaxRetries)
+			}
 			errs = append(errs, err)
 			continue
 		}
 
+		// Reset failure count on success
+		if app.Database != nil {
+			ResetDocumentFailure(app.Database, document.ID)
+		}
 		docLogger.Info("Successfully processed document")
 		processedCount++
 	}
@@ -181,6 +225,32 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 
 	for _, document := range documents {
 		docLogger := documentLogger(document.ID)
+
+		// Check if this document has exceeded max retries
+		if app.Database != nil {
+			failure, dbErr := GetDocumentFailure(app.Database, document.ID)
+			if dbErr != nil {
+				docLogger.Errorf("Error checking failure count: %v", dbErr)
+			}
+			if failure != nil && failure.FailureCount >= documentMaxRetries {
+				docLogger.Warnf("Document has failed %d times (max %d), marking as failed",
+					failure.FailureCount, documentMaxRetries)
+				markErr := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+					{
+						ID:               document.ID,
+						OriginalDocument: document,
+						RemoveTags:       []string{autoOcrTag},
+						AddTags:          []string{failedTag},
+					},
+				}, app.Database, false)
+				if markErr != nil {
+					docLogger.Errorf("Failed to mark document as failed: %v", markErr)
+					errs = append(errs, markErr)
+				}
+				continue
+			}
+		}
+
 		docLogger.Info("Processing document for OCR")
 
 		// Skip OCR if the document already has the OCR complete tag and tagging is enabled
@@ -239,6 +309,13 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 
 		if err != nil {
 			docLogger.Errorf("OCR processing failed: %v", err)
+			if app.Database != nil {
+				count, dbErr := IncrementDocumentFailure(app.Database, document.ID, err.Error())
+				if dbErr != nil {
+					docLogger.Errorf("Failed to record failure: %v", dbErr)
+				}
+				docLogger.Warnf("Document failure count: %d/%d", count, documentMaxRetries)
+			}
 			errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
 			continue
 		}
@@ -284,6 +361,10 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			}
 		}
 
+		// Reset failure count on success
+		if app.Database != nil {
+			ResetDocumentFailure(app.Database, document.ID)
+		}
 		docLogger.Info("Successfully processed document OCR")
 		successCount++
 	}

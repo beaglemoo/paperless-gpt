@@ -68,6 +68,8 @@ var (
 	imageMaxTotalPixels           int // Will be read from IMAGE_MAX_TOTAL_PIXELS
 	imageMaxRenderDPI             int // Will be read from IMAGE_MAX_RENDER_DPI
 	imageMaxFileBytes             int // Will be read from IMAGE_MAX_FILE_BYTES
+	documentMaxRetries            = 3 // Will be read from DOCUMENT_MAX_RETRIES
+	failedTag                     = os.Getenv("FAILED_TAG")
 	createLocalHOCR               = os.Getenv("CREATE_LOCAL_HOCR") == "true"
 	createLocalPDF                = os.Getenv("CREATE_LOCAL_PDF") == "true"
 	localHOCRPath                 = os.Getenv("LOCAL_HOCR_PATH")
@@ -583,6 +585,18 @@ func validateOrDefaultEnvVars() {
 	if pdfOCRCompleteTag == "" {
 		pdfOCRCompleteTag = "paperless-gpt-ocr-complete"
 	}
+
+	if failedTag == "" {
+		failedTag = "paperless-gpt-failed"
+	}
+	fmt.Printf("Using %s as failed tag\n", failedTag)
+
+	if raw := os.Getenv("DOCUMENT_MAX_RETRIES"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			documentMaxRetries = parsed
+		}
+	}
+	fmt.Printf("Document max retries: %d\n", documentMaxRetries)
 
 	if paperlessBaseURL == "" {
 		log.Fatal("Please set the PAPERLESS_BASE_URL environment variable.")
