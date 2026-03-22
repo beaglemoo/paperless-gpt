@@ -123,21 +123,29 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 				docLogger.Errorf("Error checking failure count: %v", dbErr)
 			}
 			if failure != nil && failure.FailureCount >= documentMaxRetries {
-				docLogger.Warnf("Document has failed %d times (max %d), marking as failed",
-					failure.FailureCount, documentMaxRetries)
-				markErr := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
-					{
-						ID:               document.ID,
-						OriginalDocument: document,
-						RemoveTags:       []string{autoTag},
-						AddTags:          []string{failedTag},
-					},
-				}, app.Database, false)
-				if markErr != nil {
-					docLogger.Errorf("Failed to mark document as failed: %v", markErr)
-					errs = append(errs, markErr)
+				// Check if cooldown period has elapsed for auto-retry
+				if documentRetryAfter > 0 && time.Since(failure.LastFailedAt) >= documentRetryAfter {
+					docLogger.Infof("Document failed %d times but cooldown of %v has elapsed, retrying",
+						failure.FailureCount, documentRetryAfter)
+					ResetDocumentFailure(app.Database, document.ID)
+					// Fall through to normal processing
+				} else {
+					docLogger.Warnf("Document has failed %d times (max %d), marking as failed",
+						failure.FailureCount, documentMaxRetries)
+					markErr := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+						{
+							ID:               document.ID,
+							OriginalDocument: document,
+							RemoveTags:       []string{autoTag},
+							AddTags:          []string{failedTag},
+						},
+					}, app.Database, false)
+					if markErr != nil {
+						docLogger.Errorf("Failed to mark document as failed: %v", markErr)
+						errs = append(errs, markErr)
+					}
+					continue
 				}
-				continue
 			}
 		}
 
@@ -233,21 +241,29 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 				docLogger.Errorf("Error checking failure count: %v", dbErr)
 			}
 			if failure != nil && failure.FailureCount >= documentMaxRetries {
-				docLogger.Warnf("Document has failed %d times (max %d), marking as failed",
-					failure.FailureCount, documentMaxRetries)
-				markErr := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
-					{
-						ID:               document.ID,
-						OriginalDocument: document,
-						RemoveTags:       []string{autoOcrTag},
-						AddTags:          []string{failedTag},
-					},
-				}, app.Database, false)
-				if markErr != nil {
-					docLogger.Errorf("Failed to mark document as failed: %v", markErr)
-					errs = append(errs, markErr)
+				// Check if cooldown period has elapsed for auto-retry
+				if documentRetryAfter > 0 && time.Since(failure.LastFailedAt) >= documentRetryAfter {
+					docLogger.Infof("Document failed %d times but cooldown of %v has elapsed, retrying",
+						failure.FailureCount, documentRetryAfter)
+					ResetDocumentFailure(app.Database, document.ID)
+					// Fall through to normal processing
+				} else {
+					docLogger.Warnf("Document has failed %d times (max %d), marking as failed",
+						failure.FailureCount, documentMaxRetries)
+					markErr := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+						{
+							ID:               document.ID,
+							OriginalDocument: document,
+							RemoveTags:       []string{autoOcrTag},
+							AddTags:          []string{failedTag},
+						},
+					}, app.Database, false)
+					if markErr != nil {
+						docLogger.Errorf("Failed to mark document as failed: %v", markErr)
+						errs = append(errs, markErr)
+					}
+					continue
 				}
-				continue
 			}
 		}
 

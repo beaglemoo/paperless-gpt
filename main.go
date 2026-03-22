@@ -69,6 +69,7 @@ var (
 	imageMaxRenderDPI             int // Will be read from IMAGE_MAX_RENDER_DPI
 	imageMaxFileBytes             int // Will be read from IMAGE_MAX_FILE_BYTES
 	documentMaxRetries            = 3 // Will be read from DOCUMENT_MAX_RETRIES
+	documentRetryAfter            = 24 * time.Hour // Will be read from DOCUMENT_RETRY_AFTER
 	failedTag                     = os.Getenv("FAILED_TAG")
 	createLocalHOCR               = os.Getenv("CREATE_LOCAL_HOCR") == "true"
 	createLocalPDF                = os.Getenv("CREATE_LOCAL_PDF") == "true"
