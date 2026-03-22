@@ -501,6 +501,11 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		}
 		finalTagNames = cleanedTags
 
+		// Add any tags from AddTags
+		if len(document.AddTags) > 0 {
+			finalTagNames = append(finalTagNames, document.AddTags...)
+		}
+
 		slices.Sort(finalTagNames)
 		finalTagNames = slices.Compact(finalTagNames)
 
