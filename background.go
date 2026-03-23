@@ -36,6 +36,11 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 			processedCount, err := func() (count int, err error) {
 				count = 0
 
+				// Re-queue failed documents whose cooldown has elapsed
+				if appRef, ok := app.(*App); ok {
+					appRef.requeueFailedDocuments(ctx)
+				}
+
 				// If OCR is enabled, run OCR tagging first
 				if app.isOcrEnabled() {
 					ocrCount, err := app.processAutoOcrTagDocuments(ctx)
@@ -76,6 +81,59 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 			}
 		}
 	}()
+}
+
+// requeueFailedDocuments checks documents tagged as failed and re-queues them
+// for processing if the cooldown period has elapsed since their last failure.
+func (app *App) requeueFailedDocuments(ctx context.Context) {
+	if app.Database == nil || documentRetryAfter <= 0 {
+		return
+	}
+
+	documents, err := app.Client.GetDocumentsByTag(ctx, failedTag, 25)
+	if err != nil {
+		log.Errorf("Error fetching failed documents for retry check: %v", err)
+		return
+	}
+
+	if len(documents) == 0 {
+		return
+	}
+
+	for _, document := range documents {
+		docLogger := documentLogger(document.ID)
+
+		failure, dbErr := GetDocumentFailure(app.Database, document.ID)
+		if dbErr != nil {
+			docLogger.Errorf("Error checking failure record: %v", dbErr)
+			continue
+		}
+		if failure == nil {
+			// No failure record but has failed tag - clean up by re-queuing
+			docLogger.Info("Document has failed tag but no failure record, re-queuing")
+		} else if time.Since(failure.LastFailedAt) < documentRetryAfter {
+			continue
+		} else {
+			docLogger.Infof("Document failed %d times but cooldown of %v has elapsed, re-queuing",
+				failure.FailureCount, documentRetryAfter)
+			ResetDocumentFailure(app.Database, document.ID)
+		}
+
+		// Swap tags: remove failed, add auto
+		err := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+			{
+				ID:               document.ID,
+				OriginalDocument: document,
+				RemoveTags:       []string{failedTag},
+				AddTags:          []string{autoTag},
+			},
+		}, app.Database, false)
+		if err != nil {
+			docLogger.Errorf("Failed to re-queue document: %v", err)
+			continue
+		}
+		docLogger.Info("Document re-queued for processing")
+	}
 }
 
 // processAutoTagDocuments handles the background auto-tagging of documents
@@ -123,29 +181,21 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 				docLogger.Errorf("Error checking failure count: %v", dbErr)
 			}
 			if failure != nil && failure.FailureCount >= documentMaxRetries {
-				// Check if cooldown period has elapsed for auto-retry
-				if documentRetryAfter > 0 && time.Since(failure.LastFailedAt) >= documentRetryAfter {
-					docLogger.Infof("Document failed %d times but cooldown of %v has elapsed, retrying",
-						failure.FailureCount, documentRetryAfter)
-					ResetDocumentFailure(app.Database, document.ID)
-					// Fall through to normal processing
-				} else {
-					docLogger.Warnf("Document has failed %d times (max %d), marking as failed",
-						failure.FailureCount, documentMaxRetries)
-					markErr := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
-						{
-							ID:               document.ID,
-							OriginalDocument: document,
-							RemoveTags:       []string{autoTag},
-							AddTags:          []string{failedTag},
-						},
-					}, app.Database, false)
-					if markErr != nil {
-						docLogger.Errorf("Failed to mark document as failed: %v", markErr)
-						errs = append(errs, markErr)
-					}
-					continue
+				docLogger.Warnf("Document has failed %d times (max %d), marking as failed",
+					failure.FailureCount, documentMaxRetries)
+				markErr := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+					{
+						ID:               document.ID,
+						OriginalDocument: document,
+						RemoveTags:       []string{autoTag},
+						AddTags:          []string{failedTag},
+					},
+				}, app.Database, false)
+				if markErr != nil {
+					docLogger.Errorf("Failed to mark document as failed: %v", markErr)
+					errs = append(errs, markErr)
 				}
+				continue
 			}
 		}
 
@@ -241,29 +291,21 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 				docLogger.Errorf("Error checking failure count: %v", dbErr)
 			}
 			if failure != nil && failure.FailureCount >= documentMaxRetries {
-				// Check if cooldown period has elapsed for auto-retry
-				if documentRetryAfter > 0 && time.Since(failure.LastFailedAt) >= documentRetryAfter {
-					docLogger.Infof("Document failed %d times but cooldown of %v has elapsed, retrying",
-						failure.FailureCount, documentRetryAfter)
-					ResetDocumentFailure(app.Database, document.ID)
-					// Fall through to normal processing
-				} else {
-					docLogger.Warnf("Document has failed %d times (max %d), marking as failed",
-						failure.FailureCount, documentMaxRetries)
-					markErr := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
-						{
-							ID:               document.ID,
-							OriginalDocument: document,
-							RemoveTags:       []string{autoOcrTag},
-							AddTags:          []string{failedTag},
-						},
-					}, app.Database, false)
-					if markErr != nil {
-						docLogger.Errorf("Failed to mark document as failed: %v", markErr)
-						errs = append(errs, markErr)
-					}
-					continue
+				docLogger.Warnf("Document has failed %d times (max %d), marking as failed",
+					failure.FailureCount, documentMaxRetries)
+				markErr := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+					{
+						ID:               document.ID,
+						OriginalDocument: document,
+						RemoveTags:       []string{autoOcrTag},
+						AddTags:          []string{failedTag},
+					},
+				}, app.Database, false)
+				if markErr != nil {
+					docLogger.Errorf("Failed to mark document as failed: %v", markErr)
+					errs = append(errs, markErr)
 				}
+				continue
 			}
 		}
 
